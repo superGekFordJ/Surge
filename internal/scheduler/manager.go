@@ -24,29 +24,18 @@ const terminalSendTimeout = 3 * time.Second
 // on a closed channel (which can happen during shutdown).
 func safeSendProgress(ch chan<- types.DownloadEvent, msg types.DownloadEvent, doneCh <-chan struct{}) {
 	defer func() { _ = recover() }()
-	if doneCh != nil {
-		select {
-		case ch <- msg:
-			return
-		default:
-		}
-		select {
-		case ch <- msg:
-		case <-doneCh:
-		}
-	} else {
-		select {
-		case ch <- msg:
-			return
-		default:
-		}
-		timer := time.NewTimer(terminalSendTimeout)
-		defer timer.Stop()
-		select {
-		case ch <- msg:
-		case <-timer.C:
-			utils.Debug("safeSendProgress: timed out delivering terminal event %v", msg.Type)
-		}
+	select {
+	case ch <- msg:
+		return
+	default:
+	}
+	timer := time.NewTimer(terminalSendTimeout)
+	defer timer.Stop()
+	select {
+	case ch <- msg:
+	case <-doneCh:
+	case <-timer.C:
+		utils.Debug("safeSendProgress: timed out delivering event %v", msg.Type)
 	}
 }
 
