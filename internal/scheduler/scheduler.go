@@ -839,9 +839,9 @@ func sendPausedFallback(ch chan<- types.DownloadEvent, cfg *types.DownloadRecord
 		downloaded = state.Bytes.Downloaded.Load()
 		rateLimit, rateLimitSet = state.GetRateLimit()
 	}
-	// A nil error and no pending snapshot means the concurrent downloader
-	// already queued EventPaused and consumed the delivery handshake.
-	if runErr == nil && pending == nil {
+	// A nil error (or typed ErrPaused) and no pending snapshot means the
+	// concurrent downloader already queued EventPaused and consumed the delivery handshake.
+	if (runErr == nil || errors.Is(runErr, types.ErrPaused)) && pending == nil {
 		return
 	}
 

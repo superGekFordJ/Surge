@@ -18,6 +18,8 @@ import (
 	"github.com/SurgeDM/Surge/internal/utils"
 )
 
+const terminalSendTimeout = 3 * time.Second
+
 // safeSendProgress sends msg on ch, recovering from panics caused by sending
 // on a closed channel (which can happen during shutdown).
 func safeSendProgress(ch chan<- types.DownloadEvent, msg types.DownloadEvent, doneCh <-chan struct{}) {
@@ -33,7 +35,18 @@ func safeSendProgress(ch chan<- types.DownloadEvent, msg types.DownloadEvent, do
 		case <-doneCh:
 		}
 	} else {
-		ch <- msg
+		select {
+		case ch <- msg:
+			return
+		default:
+		}
+		timer := time.NewTimer(terminalSendTimeout)
+		defer timer.Stop()
+		select {
+		case ch <- msg:
+		case <-timer.C:
+			utils.Debug("safeSendProgress: timed out delivering terminal event %v", msg.Type)
+		}
 	}
 }
 
