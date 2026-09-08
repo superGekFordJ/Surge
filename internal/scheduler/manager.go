@@ -263,14 +263,15 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 		}
 	}
 
-	// Only send completion if NO error AND not paused.
+	// Return typed pause error rather than normalizing to nil so callers
+	// can distinguish a clean pause from successful completion or errors.
 	if errors.Is(downloadErr, types.ErrPaused) {
 		utils.Debug("Download paused cleanly")
-		return nil // Return nil so worker can remove it from active map
+		return downloadErr
 	}
 
-	isPaused := progState != nil && progState.IsPaused()
-	if downloadErr == nil && !isPaused {
+	// Physical download success takes precedence over late-arriving pause signals.
+	if downloadErr == nil {
 		var elapsed time.Duration
 		if progState != nil {
 			_, elapsed = progState.FinalizeSession(effectiveTotalSize)
@@ -287,6 +288,7 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 
 		if cfg.ProgressCh != nil {
 			rateLimit, rateLimitSet := currentRateLimit()
+			// EventComplete is terminal-reliable and must not be dropped due to canceled context.
 			safeSendProgress(cfg.ProgressCh, types.DownloadEvent{
 				Type:         types.EventComplete,
 				DownloadID:   cfg.ID,
@@ -296,15 +298,14 @@ func RunDownload(ctx context.Context, cfg *types.DownloadRecord) error {
 				AvgSpeed:     avgSpeed,
 				RateLimit:    rateLimit,
 				RateLimitSet: rateLimitSet,
-			}, ctx.Done())
+			}, nil)
 		}
-	} else if downloadErr != nil && !isPaused {
-		// Verify it's not a cancellation error
-		if errors.Is(downloadErr, context.Canceled) || errors.Is(downloadErr, context.DeadlineExceeded) {
-			utils.Debug("Download canceled cleanly")
-			return downloadErr
-		}
-		// EventError is emitted by the scheduler's worker() after all retries are exhausted.
+		return nil
+	}
+
+	if errors.Is(downloadErr, context.Canceled) || errors.Is(downloadErr, context.DeadlineExceeded) {
+		utils.Debug("Download canceled cleanly")
+		return downloadErr
 	}
 
 	return downloadErr
